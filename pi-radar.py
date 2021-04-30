@@ -3,6 +3,7 @@
 
 # import the necessary packages
 from imutils.video import VideoStream
+from imutils.video import FileVideoStream
 from imutils.video import FPS
 import numpy as np
 import argparse
@@ -12,11 +13,11 @@ import cv2
 
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
-ap.add_argument("-p", "--prototxt", required=True,
+ap.add_argument("-p", "--prototxt", default="MobileNetSSD_deploy.prototxt.txt",
 	help="path to Caffe 'deploy' prototxt file")
-ap.add_argument("-m", "--model", required=True,
+ap.add_argument("-m", "--model", default="MobileNetSSD_deploy.caffemodel",
 	help="path to Caffe pre-trained model")
-ap.add_argument("-c", "--confidence", type=float, default=0.2,
+ap.add_argument("-c", "--confidence", type=float, default=0.15,
 	help="minimum probability to filter weak detections")
 args = vars(ap.parse_args())
 
@@ -28,6 +29,9 @@ CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
 	"sofa", "train", "tvmonitor"]
 COLORS = np.random.uniform(0, 255, size=(len(CLASSES), 3))
 
+car_idx = CLASSES.index("car")
+bus_idx = CLASSES.index("bus")
+
 # load our serialized model from disk
 print("[INFO] loading model...")
 net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
@@ -36,15 +40,22 @@ net = cv2.dnn.readNetFromCaffe(args["prototxt"], args["model"])
 # and initialize the FPS counter
 print("[INFO] starting video stream...")
 # vs = VideoStream(src="rtsp://192.168.0.231/unicast").start()
-vs = VideoStream(src=2).start()
-time.sleep(2.0)
+# vs = VideoStream(src=2).start()
+vs = FileVideoStream("demo.mp4").start()
+if isinstance(vs, VideoStream):
+	time.sleep(2.0)
 fps = FPS().start()
-
+car_counter = 0
+car_detected = False
 # loop over the frames from the video stream
 while True:
 	# grab the frame from the threaded video stream and resize it
 	# to have a maximum width of 400 pixels
 	frame = vs.read()
+	if frame is None:
+		print("End of video, got None as frame")
+		break
+
 	frame = imutils.resize(frame, width=400)
 
 	# grab the frame dimensions and convert it to a blob
@@ -57,8 +68,11 @@ while True:
 	net.setInput(blob)
 	detections = net.forward()
 
+
 	# loop over the detections
-	for i in np.arange(0, detections.shape[2]):
+	no_car_detected = True
+	detections_array = np.arange(0, detections.shape[2])
+	for i in detections_array:
 		# extract the confidence (i.e., probability) associated with
 		# the prediction
 		confidence = detections[0, 0, i, 2]
@@ -70,20 +84,32 @@ while True:
 			# `detections`, then compute the (x, y)-coordinates of
 			# the bounding box for the object
 			idx = int(detections[0, 0, i, 1])
+			if idx != car_idx:
+				continue
 			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
 			(startX, startY, endX, endY) = box.astype("int")
 
 			# draw the prediction on the frame
 			label = "{}: {:.2f}%".format(CLASSES[idx],
 				confidence * 100)
+			
 			cv2.rectangle(frame, (startX, startY), (endX, endY),
 				COLORS[idx], 2)
 			y = startY - 15 if startY - 15 > 15 else startY + 15
 			cv2.putText(frame, label, (startX, y),
 				cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
+			if startX < 50:
+				car_detected = True
+				no_car_detected = False
+
+	if car_detected and no_car_detected:
+		print("A car has come by!")
+		car_detected = False
+
 
 	# show the output frame
 	cv2.imshow("Frame", frame)
+	time.sleep(0.1)
 	key = cv2.waitKey(1) & 0xFF
 
 	# if the `q` key was pressed, break from the loop
