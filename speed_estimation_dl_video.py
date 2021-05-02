@@ -22,19 +22,11 @@ from datetime import datetime
 from threading import Thread
 import numpy as np
 import argparse
-import dropbox
 import imutils
 import dlib
 import time
 import cv2
 import os
-
-def upload_file(tempFile, client, imageID):
-	# upload the image to Dropbox and cleanup the tempory image
-	print("[INFO] uploading {}...".format(imageID))
-	path = "/{}.jpg".format(imageID)
-	client.files_upload(open(tempFile.path, "rb").read(), path)
-	tempFile.cleanup()
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -53,12 +45,6 @@ CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
 	"bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
 	"dog", "horse", "motorbike", "person", "pottedplant", "sheep",
 	"sofa", "train", "tvmonitor"]
-
-# check to see if the Dropbox should be used
-if conf["use_dropbox"]:
-	# connect to dropbox and start the session authorization process
-	client = dropbox.Dropbox(conf["dropbox_access_token"])
-	print("[SUCCESS] dropbox account linked")
 
 # load our serialized model from disk
 print("[INFO] loading model...")
@@ -118,16 +104,7 @@ while True:
 
 		# set the file pointer to end of the file
 		pos = logFile.seek(0, os.SEEK_END)
-
-		# if we are using dropbox and this is a empty log file then
-		# write the column headings
-		if conf["use_dropbox"] and pos == 0:
-			logFile.write("Year,Month,Day,Time,Speed (in MPH),ImageID\n")
-
-		# otherwise, we are not using dropbox and this is a empty log
-		# file then write the column headings
-		elif pos == 0:
-			logFile.write("Year,Month,Day,Time (in MPH),Speed\n")
+		logFile.write("Year,Month,Day,Time (in MPH),Speed\n")
 
 	# resize the frame
 	frame = imutils.resize(frame, width=conf["frame_width"])
@@ -391,32 +368,9 @@ while True:
 				day = ts.strftime("%d")
 				time = ts.strftime("%H:%M:%S")
 
-				# check if dropbox is to be used to store the vehicle
-				# image
-				if conf["use_dropbox"]:
-					# initialize the image id, and the temporary file
-					imageID = ts.strftime("%H%M%S%f")
-					tempFile = TempFile()
-					cv2.imwrite(tempFile.path, frame)
-
-					# create a thread to upload the file to dropbox
-					# and start it
-					t = Thread(target=upload_file, args=(tempFile,
-						client, imageID,))
-					t.start()
-
-					# log the event in the log file
-					info = "{},{},{},{},{},{}\n".format(year, month,
-						day, time, to.speedMPH, imageID)
-					logFile.write(info)
-
-				# otherwise, we are not uploading vehicle images to
-				# dropbox
-				else:
-					# log the event in the log file
-					info = "{},{},{},{},{}\n".format(year, month,
-						day, time, to.speedMPH)
-					logFile.write(info)
+				info = "{},{},{},{},{}\n".format(year, month,
+					day, time, to.speedMPH)
+				logFile.write(info)
 
 				# set the object has logged
 				to.logged = True

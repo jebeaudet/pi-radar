@@ -12,23 +12,15 @@ from datetime import datetime
 from threading import Thread
 import numpy as np
 import argparse
-import dropbox
 import imutils
 import dlib
 import time
 import cv2
 import os
 
-def upload_file(tempFile, client, imageID):
-	# upload the image to Dropbox and cleanup the tempory image
-	print("[INFO] uploading {}...".format(imageID))
-	path = "/{}.jpg".format(imageID)
-	client.files_upload(open(tempFile.path, "rb").read(), path)
-	tempFile.cleanup()
-
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
-ap.add_argument("-c", "--conf", required=True,
+ap.add_argument("-c", "--conf", default="config/config.json",
 	help="Path to the input configuration file")
 args = vars(ap.parse_args())
 
@@ -42,22 +34,22 @@ CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
 	"dog", "horse", "motorbike", "person", "pottedplant", "sheep",
 	"sofa", "train", "tvmonitor"]
 
-# check to see if the Dropbox should be used
-if conf["use_dropbox"]:
-	# connect to dropbox and start the session authorization process
-	client = dropbox.Dropbox(conf["dropbox_access_token"])
-	print("[SUCCESS] dropbox account linked")
-
 # load our serialized model from disk
 print("[INFO] loading model...")
 net = cv2.dnn.readNetFromCaffe(conf["prototxt_path"],
 	conf["model_path"])
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_MYRIAD)
+net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
 # initialize the video stream and allow the camera sensor to warmup
-print("[INFO] warming up camera...")
-#vs = VideoStream(src=0).start()
-vs = VideoStream(usePiCamera=True).start()
+endpoint = os.getenv("RTSP_ENDPOINT")
+if endpoint is None:
+	print("No endpoint specified, exiting!")
+	exit(1)
+
+print(f"[INFO] warming up camera with endpoint {endpoint}...")
+vs = VideoStream(src=endpoint).start()
+# vs = VideoStream(src=2).start()
+# vs = FileVideoStream("demo.mp4").start()
 time.sleep(2.0)
 
 # initialize the frame dimensions (we'll set them as soon as we read
@@ -107,15 +99,7 @@ while True:
 		# set the file pointer to end of the file
 		pos = logFile.seek(0, os.SEEK_END)
 
-		# if we are using dropbox and this is a empty log file then
-		# write the column headings
-		if conf["use_dropbox"] and pos == 0:
-			logFile.write("Year,Month,Day,Time,Speed (in MPH),ImageID\n")
-
-		# otherwise, we are not using dropbox and this is a empty log
-		# file then write the column headings
-		elif pos == 0:
-			logFile.write("Year,Month,Day,Time (in MPH),Speed\n")
+		logFile.write("Year,Month,Day,Time (in MPH),Speed\n")
 
 	# resize the frame
 	frame = imutils.resize(frame, width=conf["frame_width"])
@@ -379,32 +363,10 @@ while True:
 				day = ts.strftime("%d")
 				time = ts.strftime("%H:%M:%S")
 
-				# check if dropbox is to be used to store the vehicle
-				# image
-				if conf["use_dropbox"]:
-					# initialize the image id, and the temporary file
-					imageID = ts.strftime("%H%M%S%f")
-					tempFile = TempFile()
-					cv2.imwrite(tempFile.path, frame)
-
-					# create a thread to upload the file to dropbox
-					# and start it
-					t = Thread(target=upload_file, args=(tempFile,
-						client, imageID,))
-					t.start()
-
-					# log the event in the log file
-					info = "{},{},{},{},{},{}\n".format(year, month,
-						day, time, to.speedMPH, imageID)
-					logFile.write(info)
-
-				# otherwise, we are not uploading vehicle images to
-				# dropbox
-				else:
-					# log the event in the log file
-					info = "{},{},{},{},{}\n".format(year, month,
-						day, time, to.speedMPH)
-					logFile.write(info)
+				# log the event in the log file
+				info = "{},{},{},{},{}\n".format(year, month,
+					day, time, to.speedMPH)
+				logFile.write(info)
 
 				# set the object has logged
 				to.logged = True

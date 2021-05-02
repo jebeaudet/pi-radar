@@ -1,0 +1,6 @@
+scipy
+json_minify
+imutils
+opencv-python
+cmake
+dlib
