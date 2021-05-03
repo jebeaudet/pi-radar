@@ -7,6 +7,7 @@ from pyimagesearch.trackableobject import TrackableObject
 from pyimagesearch.utils import Conf
 from imutils.video import VideoStream
 from imutils.io import TempFile
+from imutils.video import FileVideoStream
 from imutils.video import FPS
 from datetime import datetime
 from threading import Thread
@@ -42,15 +43,14 @@ net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
 # initialize the video stream and allow the camera sensor to warmup
 endpoint = os.getenv("RTSP_ENDPOINT")
-if endpoint is None:
-	print("No endpoint specified, exiting!")
+file_path = os.getenv("FILE_PATH")
+if endpoint is None and file_path is None:
+	print("No endpoint or file specified, exiting!")
 	exit(1)
-
-print(f"[INFO] warming up camera with endpoint {endpoint}...")
-vs = VideoStream(src=endpoint).start()
-# vs = VideoStream(src=2).start()
-# vs = FileVideoStream("demo.mp4").start()
-time.sleep(2.0)
+print(f"[INFO] warming up camera with endpoint {endpoint} or sample data {file_path}..")
+vs = VideoStream(src=endpoint).start() if endpoint is not None else FileVideoStream(file_path).start()
+if isinstance(vs, VideoStream):
+	time.sleep(2.0)
 
 # initialize the frame dimensions (we'll set them as soon as we read
 # the first frame from the video)
@@ -68,8 +68,6 @@ trackableObjects = {}
 # keep the count of total number of frames
 totalFrames = 0
 
-# initialize the log file
-logFile = None
 
 # initialize the list of various points used to calculate the avg of
 # the vehicle speed
@@ -78,28 +76,35 @@ points = [("A", "B"), ("B", "C"), ("C", "D")]
 # start the frames per second throughput estimator
 fps = FPS().start()
 
+# build the log file path and create/open the log file
+logPath = os.path.join(conf["output_path"], conf["csv_name"])
+logFile = open(logPath, mode="a")
+
+# set the file pointer to end of the file
+pos = logFile.seek(0, os.SEEK_END)
+
+logFile.write("Year,Month,Day,Time,Speed(km/h),Correct direction\n")
+
+error_counter = 0
 # loop over the frames of the stream
 while True:
 	# grab the next frame from the stream, store the current
 	# timestamp, and store the new date
 	frame = vs.read()
+	# check if the frame is None, if so, break out of the loop
+	if frame is None:
+		error_counter = error_counter + 1
+		print(f"No frame detected, this is the {error_counter} error!")
+		if error_counter > 5 * 30:
+			print("Too many errors, exiting")
+			break
+		else:
+			continue
+	else:
+		error_counter = 0
 	ts = datetime.now()
 	newDate = ts.strftime("%m-%d-%y")
 
-	# check if the frame is None, if so, break out of the loop
-	if frame is None:
-		break
-
-	# if the log file has not been created or opened
-	if logFile is None:
-		# build the log file path and create/open the log file
-		logPath = os.path.join(conf["output_path"], conf["csv_name"])
-		logFile = open(logPath, mode="a")
-
-		# set the file pointer to end of the file
-		pos = logFile.seek(0, os.SEEK_END)
-
-		logFile.write("Year,Month,Day,Time (in MPH),Speed\n")
 
 	# resize the frame
 	frame = imutils.resize(frame, width=conf["frame_width"])
@@ -190,8 +195,15 @@ while True:
 		# object ID
 		to = trackableObjects.get(objectID, None)
 
+		# if objectID == 1 and to is not None:
+		# 	y = [c[0] for c in to.centroids]
+		# 	print(f"direction {to.direction}")
+		# 	print(f"centroid {centroid[0]}")
+		# 	print(f"mean {np.mean(y)}")
+
 		# if there is no existing trackable object, create one
 		if to is None:
+			print(f"initializing {objectID}")
 			to = TrackableObject(objectID, centroid)
 
 		# otherwise, if there is a trackable object and its speed has
@@ -199,7 +211,7 @@ while True:
 		elif not to.estimated:
 			# check if the direction of the object has been set, if
 			# not, calculate it, and set it
-			if to.direction is None:
+			if to.direction is None or to.direction == 0.0:
 				y = [c[0] for c in to.centroids]
 				direction = centroid[0] - np.mean(y)
 				to.direction = direction
@@ -263,7 +275,8 @@ while True:
 					# the corresponding point then set the timestamp
 					# as current timestamp and set the position as the
 					# centroid's x-coordinate
-					if centroid[0] < conf["speed_estimation_zone"]["D"]:
+					if centroid[0] < conf["speed_estimation_zone"]["D"] and centroid[0] >= conf["speed_estimation_zone"]["C"]:
+						# print(f"Calculated D for id {objectID}")
 						to.timestamp["D"] = ts
 						to.position["D"] = centroid[0]
 
@@ -274,7 +287,8 @@ while True:
 					# the corresponding point then set the timestamp
 					# as current timestamp and set the position as the
 					# centroid's x-coordinate
-					if centroid[0] < conf["speed_estimation_zone"]["C"]:
+					if centroid[0] < conf["speed_estimation_zone"]["C"] and centroid[0] >= conf["speed_estimation_zone"]["B"]:
+						# print(f"Calculated C for id {objectID}")
 						to.timestamp["C"] = ts
 						to.position["C"] = centroid[0]
 
@@ -285,7 +299,8 @@ while True:
 					# the corresponding point then set the timestamp
 					# as current timestamp and set the position as the
 					# centroid's x-coordinate
-					if centroid[0] < conf["speed_estimation_zone"]["B"]:
+					if centroid[0] < conf["speed_estimation_zone"]["B"] and centroid[0] >= conf["speed_estimation_zone"]["A"]:
+						# print(f"Calculated B for id {objectID}")
 						to.timestamp["B"] = ts
 						to.position["B"] = centroid[0]
 
@@ -297,7 +312,8 @@ while True:
 					# as current timestamp, set the position as the
 					# centroid's x-coordinate, and set the last point
 					# flag as True
-					if centroid[0] < conf["speed_estimation_zone"]["A"]:
+					if centroid[0] < conf["speed_estimation_zone"]["A"] and centroid[0] >= 1:
+						# print(f"Calculated A for id {objectID}")
 						to.timestamp["A"] = ts
 						to.position["A"] = centroid[0]
 						to.lastPoint = True
@@ -325,7 +341,7 @@ while True:
 					# calculate the time in hours
 					t = to.timestamp[j] - to.timestamp[i]
 					timeInSeconds = abs(t.total_seconds())
-					timeInHours = timeInSeconds / (60 * 60)
+					timeInHours = timeInSeconds / 3600
 
 					# calculate distance in kilometers and append the
 					# calculated speed to the list
@@ -339,7 +355,7 @@ while True:
 				# set the object as estimated
 				to.estimated = True
 				print("[INFO] Speed of the vehicle that just passed"\
-					" is: {:.2f} MPH".format(to.speedMPH))
+					" is: {:.2f} KPH".format(to.speedKMPH))
 
 		# store the trackable object in our dictionary
 		trackableObjects[objectID] = to
@@ -361,11 +377,11 @@ while True:
 				year = ts.strftime("%Y")
 				month = ts.strftime("%m")
 				day = ts.strftime("%d")
-				time = ts.strftime("%H:%M:%S")
+				time_str = ts.strftime("%H:%M:%S")
 
 				# log the event in the log file
-				info = "{},{},{},{},{}\n".format(year, month,
-					day, time, to.speedMPH)
+				info = "{},{},{},{},{},{}\n".format(year, month,
+					day, time_str, to.speedKMPH, 1 if to.direction < 0 else 0)
 				logFile.write(info)
 
 				# set the object has logged

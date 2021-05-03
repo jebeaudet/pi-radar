@@ -2,16 +2,16 @@
 	// maximum consecutive frames a given object is allowed to be
 	// marked as "disappeared" until we need to deregister the object
 	// from tracking
-	"max_disappear": 10,
+	"max_disappear": 20,
 
 	// maximum distance between centroids to associate an object --
 	// if the distance is larger than this maximum distance we'll
 	// start to mark the object as "disappeared"
-	"max_distance": 175,
+	"max_distance": 200,
 
 	// number of frames to perform object tracking instead of object
 	// detection
-	"track_object": 4,
+	"track_object": 2,
 
 	// minimum confidence
 	"confidence": 0.4,
@@ -20,10 +20,10 @@
 	"frame_width": 400,
 
 	// dictionary holding the different speed estimation columns
-	"speed_estimation_zone": {"A": 120, "B": 160, "C": 200, "D": 240},
+	"speed_estimation_zone": {"A": 145, "B": 205, "C": 265, "D": 325},
 
 	// real world distance in meters
-	"distance": 16,
+	"distance": 26.7,
 
 	// speed limit in mph
 	"speed_limit": 0,
